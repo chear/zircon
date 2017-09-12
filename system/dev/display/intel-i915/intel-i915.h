@@ -12,6 +12,7 @@
 #include <fbl/vector.h>
 #include <hwreg/mmio.h>
 #include <threads.h>
+#include <zx/bti.h>
 
 #include "display-device.h"
 #include "gtt.h"
@@ -40,6 +41,7 @@ public:
     pci_protocol_t* pci() { return &pci_; }
     hwreg::RegisterIo* mmio_space() { return mmio_space_.get(); }
     Gtt* gtt() { return &gtt_; }
+    const zx::bti& bti() { return bti_; }
     uint16_t device_id() const { return device_id_; }
     const IgdOpRegion& igd_opregion() const { return igd_opregion_; }
 
@@ -61,6 +63,7 @@ private:
     bool EnablePowerWell2();
     void HandleHotplug(registers::Ddi ddi);
 
+    zx::bti bti_;
     Gtt gtt_;
     IgdOpRegion igd_opregion_;
 

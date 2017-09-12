@@ -53,17 +53,16 @@ zx_status_t Gtt::Init(Controller* controller) {
         zxlogf(ERROR, "i915: failed to alloc scratch buffer %d\n", status);
         return status;
     }
-    status = scratch_buffer_.op_range(ZX_VMO_OP_COMMIT, 0, PAGE_SIZE, nullptr, 0);
-    if (status != ZX_OK) {
-        zxlogf(ERROR, "i915: failed to commit scratch buffer %d\n", status);
-        return status;
-    }
-    status = scratch_buffer_.op_range(ZX_VMO_OP_LOOKUP, 0, PAGE_SIZE,
-                                      &scratch_buffer_paddr_, sizeof(zx_paddr_t));
+
+    size_t actual_num_entries;
+    status = controller_->bti().pin(scratch_buffer_, 0, PAGE_SIZE,
+                                    ZX_VM_FLAG_PERM_READ, &scratch_buffer_paddr_, 1,
+                                    &actual_num_entries);
     if (status != ZX_OK) {
         zxlogf(ERROR, "i915: failed to look up scratch buffer %d\n", status);
         return status;
     }
+    ZX_DEBUG_ASSERT(actual_num_entries == 1);
 
     // Populate the gtt with the scratch buffer.
     uint64_t pte = gen_pte_encode(scratch_buffer_paddr_, false);
@@ -95,10 +94,19 @@ fbl::unique_ptr<const GttRegion> Gtt::Insert(zx::vmo* buffer,
     uint32_t num_pages = ROUNDUP(length, PAGE_SIZE) / PAGE_SIZE;
     while (i < num_pages) {
         uint32_t cur_len = fbl::min(length - (i * PAGE_SIZE), num_entries * PAGE_SIZE);
-        status = buffer->op_range(ZX_VMO_OP_LOOKUP, i * PAGE_SIZE, cur_len, paddrs, PAGE_SIZE);
+        size_t actual_num_entries;
+        status = controller_->bti().pin(*buffer, i * PAGE_SIZE, ROUNDUP(cur_len, PAGE_SIZE),
+                                        ZX_VM_FLAG_PERM_READ, paddrs, num_entries,
+                                        &actual_num_entries);
         if (status != ZX_OK) {
-            zxlogf(SPEW, "i915: Failed to get paddrs (%d)\n", status);
+            zxlogf(ERROR, "i915: Failed to get paddrs (%d)\n", status);
             return nullptr;
+        }
+        if (actual_num_entries != num_entries) {
+            ZX_DEBUG_ASSERT(actual_num_entries == 1);
+            for (unsigned j = 1; j < num_entries; ++j) {
+                paddrs[j] = paddrs[j - 1] + PAGE_SIZE;
+            }
         }
         for (unsigned j = 0; j < num_entries && i < num_pages; i++, j++) {
             uint64_t pte = gen_pte_encode(paddrs[j], true);
